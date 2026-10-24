@@ -4,7 +4,9 @@
 
 **The Last Relic** es un juego de aventura y exploración ambientado en un mundo en ruinas, donde los restos de una civilización antigua guardan el secreto para salvar lo que queda de la humanidad. Tú eres el último buscador de reliquias, y la reliquia final está esperando al fondo de la tierra olvidada.
 
-> 🚧 **Estado del proyecto:** fase de diseño. Todavía no hay código jugable. Este documento describe la visión del juego y servirá de guía durante el desarrollo.
+> 🚧 **Estado del proyecto:** demo técnica jugable en el navegador (mapa, movimiento, romper/colocar bloques e inventario). Este documento describe la visión del juego y servirá de guía durante el desarrollo.
+>
+> ▶️ **Jugar la demo:** https://kenny7779.github.io/TheLastRelic/ *(se publica con GitHub Pages)*
 
 ---
 
@@ -19,8 +21,8 @@ Tú recorrerás ruinas, templos y ciudades hundidas para llegar hasta ella. Pero
 ## 🎮 Concepto de juego
 
 - **Género:** aventura y exploración con combate y puzles.
-- **Perspectiva:** por definir.
-- **Plataforma objetivo:** por definir.
+- **Perspectiva:** 2D vista desde arriba (top-down), estilo RimWorld.
+- **Plataforma objetivo:** navegador web.
 - **Modo:** un jugador.
 - **Tono:** misterioso, melancólico y esperanzador.
 
@@ -53,18 +55,22 @@ Las zonas son una idea inicial y pueden cambiar durante el desarrollo:
 
 ## 🛠️ Tecnología
 
-Aún no se ha elegido el motor ni las herramientas. Esta sección se completará cuando se decida:
-
-- Motor de juego: *por definir*
-- Lenguaje: *por definir*
-- Arte y audio: *por definir*
+- Motor de juego: [Phaser 3](https://phaser.io/)
+- Lenguaje: TypeScript
+- Herramienta de build: Vite
+- Generación del mundo: [simplex-noise](https://github.com/jwagner/simplex-noise.js)
+- Arte y audio: por ahora los tiles y el personaje se dibujan por código; arte definitivo por definir
 
 ## 🗺️ Hoja de ruta
 
 - [x] Crear el repositorio
 - [x] Definir la visión inicial del juego
-- [ ] Elegir motor y tecnología
-- [ ] Prototipo del movimiento y la cámara
+- [x] Elegir motor y tecnología (Phaser + TypeScript + Vite)
+- [x] Demo: mundo de tiles, movimiento, cámara, romper/colocar bloques, inventario de 20 slots y la primera gema (Fuego)
+- [ ] Hambre y salud
+- [ ] Crafteo y herramientas
+- [ ] Guardián de la gema de Fuego
+- [ ] Biomas e identidad de las gemas de Hielo, Bosque y la cuarta
 - [ ] Primera reliquia y primer puzle jugable
 - [ ] Primera zona completa
 - [ ] Sistema de combate
@@ -73,7 +79,30 @@ Aún no se ha elegido el motor ni las herramientas. Esta sección se completará
 
 ## 🚀 Cómo ejecutarlo
 
-Todavía no hay una versión ejecutable. Cuando exista, aquí se explicarán la instalación y los controles.
+Requiere [Node.js](https://nodejs.org/) 20 o superior.
+
+```bash
+npm install
+npm run dev        # servidor de desarrollo en http://localhost:5173
+npm run build      # build de producción en dist/
+npm run typecheck  # comprobación de tipos
+```
+
+### Controles de la demo
+
+| Acción | Control |
+|---|---|
+| Moverse | `W A S D` o flechas |
+| Romper bloque | Mantener click izquierdo (alcance limitado) |
+| Colocar bloque | Click derecho (la madera sobre el agua crea un puente) |
+| Elegir slot | `1`–`0` o rueda del ratón |
+| Abrir inventario (20 slots) | `E` |
+
+**Objetivo de la demo:** encuentra la ruina de piedra cerrada, rompe un muro para entrar y rompe la Gema de Fuego. Puedes cambiar el mundo con `?seed=123` en la URL.
+
+### Publicación
+
+El repositorio incluye un workflow de GitHub Actions (`.github/workflows/deploy.yml`) que compila y publica en GitHub Pages en cada push a `main`. Para activarlo una sola vez: **Settings → Pages → Source: GitHub Actions**.
 
 ## 🤝 Contribuir
 
