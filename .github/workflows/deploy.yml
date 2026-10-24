@@ -23,8 +23,6 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-audit --no-fund
-      - run: npm run typecheck
-        continue-on-error: true
       - run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
@@ -40,3 +38,37 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # Comprueba tipos y abre el juego en Chromium. No bloquea el despliegue.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - name: Tipos (tsc)
+        run: npm run typecheck
+      - run: npm run build
+      - run: npm install --no-save --no-audit --no-fund playwright
+      - run: npx playwright install --with-deps chromium
+      - name: Servir build
+        run: |
+          nohup npx vite preview --port 4173 --strictPort > preview.log 2>&1 &
+          sleep 4
+      - name: "Smoke - arranque"
+        run: node scripts/smoke.mjs boot
+      - name: "Smoke - movimiento"
+        run: node scripts/smoke.mjs move
+      - name: "Smoke - romper bloque"
+        run: node scripts/smoke.mjs mine
+      - name: "Smoke - colocar bloque"
+        run: node scripts/smoke.mjs place
+      - name: "Smoke - gema"
+        run: node scripts/smoke.mjs gem
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: capturas
+          path: test-results
