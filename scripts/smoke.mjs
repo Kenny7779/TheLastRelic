@@ -18,11 +18,11 @@ page.on('console', (m) => {
 
 let failed = false;
 const check = (name, ok, extra = '') => {
-  console.log(`${ok ? 'PASS' : 'FAIL'} ${name} ${extra}`);
+  console.log(`${ok ? '::notice::PASS' : '::error::FAIL'} ${name} ${extra}`);
   if (!ok) failed = true;
 };
 
-await page.goto(URL);
+await page.goto(URL + (process.env.GAME_QS || ''));
 await page.waitForFunction(() => window.__relic && window.__relic.world && window.__relic.scene.isActive('UI'), null, { timeout: 20000 });
 await page.waitForTimeout(600);
 
@@ -141,7 +141,49 @@ if (step === 'gem') {
   check('se consigue la Gema de Fuego', res.gems === 1 && res.hasItem, JSON.stringify(res));
 }
 
-await page.screenshot({ path: `test-results/${step}.png` });
+const shot = await page.screenshot({ path: `test-results/${step}.png` });
+
+if (step === 'render') {
+  // Analiza los píxeles de la captura: no debe ser (casi) todo negro.
+  const p2 = await browser.newPage();
+  const stats = await p2.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = 'data:image/png;base64,' + b64;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    const colors = new Set();
+    let lum = 0;
+    let bright = 0;
+    const n = d.length / 4;
+    for (let i = 0; i < d.length; i += 4) {
+      const l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      lum += l;
+      if (l > 40) bright++;
+      colors.add(((d[i] >> 4) << 8) | ((d[i + 1] >> 4) << 4) | (d[i + 2] >> 4));
+    }
+    // Centro de la pantalla (donde debería verse el mapa).
+    const cx = Math.floor(c.width / 2);
+    const cy = Math.floor(c.height / 2);
+    const mid = ctx.getImageData(cx - 40, cy - 40, 80, 80).data;
+    let midLum = 0;
+    for (let i = 0; i < mid.length; i += 4) midLum += 0.299 * mid[i] + 0.587 * mid[i + 1] + 0.114 * mid[i + 2];
+    return { mean: lum / n, brightFrac: bright / n, colors: colors.size, centerMean: midLum / (mid.length / 4) };
+  }, shot.toString('base64'));
+  const rend = await page.evaluate(() => ({
+    type: window.__relic.game.config.renderType,
+    gl: !!window.__relic.game.renderer.gl,
+    canvasW: document.querySelector('canvas').width,
+    canvasH: document.querySelector('canvas').height,
+  }));
+  console.log('::notice::render stats ' + JSON.stringify({ ...stats, ...rend }));
+  check('el mapa se dibuja (centro no negro)', stats.centerMean > 30 && stats.colors > 25, JSON.stringify(stats));
+}
+
 check('sin errores en consola', errors.length === 0, errors.slice(0, 3).join(' | '));
 await browser.close();
 process.exit(failed ? 1 : 0);
