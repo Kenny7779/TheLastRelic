@@ -125,8 +125,8 @@ export class EnemyManager {
     const dx = e.x - fromX;
     const dy = e.y - fromY;
     const d = Math.hypot(dx, dy) || 1;
-    e.kx = (dx / d) * 260;
-    e.ky = (dy / d) * 260;
+    e.kx = (dx / d) * 150;
+    e.ky = (dy / d) * 150;
     if (e.hp <= 0) {
       const i = this.list.indexOf(e);
       if (i >= 0) this.remove(i);

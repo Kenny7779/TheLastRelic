@@ -224,15 +224,24 @@ if (step === 'combat') {
     s.enemies.list[0].speed = 0;
   });
   await page.waitForTimeout(300);
-  const pos = await page.evaluate(() => {
-    const s = window.__relic;
-    const e = s.enemies.list[0];
-    const cam = s.cameras.main;
-    return { x: (e.x - cam.worldView.x) * cam.zoom, y: (e.y - 4 - cam.worldView.y) * cam.zoom };
-  });
+  const enemyScreen = () =>
+    page.evaluate(() => {
+      const s = window.__relic;
+      const e = s.enemies.list[0];
+      if (!e) return null;
+      const cam = s.cameras.main;
+      return { x: (e.x - cam.worldView.x) * cam.zoom, y: (e.y - 4 - cam.worldView.y) * cam.zoom };
+    });
+  const pos = await enemyScreen();
   await page.mouse.move(pos.x, pos.y);
   await page.mouse.down();
-  await page.waitForTimeout(1800);
+  // Como un jugador: el cursor sigue al enemigo mientras se mantiene el click.
+  for (let i = 0; i < 24; i++) {
+    const q = await enemyScreen();
+    if (!q) break;
+    await page.mouse.move(q.x, q.y);
+    await page.waitForTimeout(90);
+  }
   await page.mouse.up();
   const left = await page.evaluate(() => window.__relic.enemies.alive());
   check('el jugador mata al enemigo con click', left === 0, `vivos=${left}`);

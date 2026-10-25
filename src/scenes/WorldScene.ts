@@ -271,7 +271,7 @@ export class WorldScene extends Phaser.Scene {
     this.progress.clear();
 
     // Combate: un enemigo bajo el cursor tiene prioridad sobre romper bloques.
-    const foe = overUI ? undefined : this.enemies.at(wp.x, wp.y, 18);
+    const foe = overUI ? undefined : this.enemies.at(wp.x, wp.y, 22);
     if (foe) {
       const foeInReach = Math.hypot(foe.x - this.px, foe.y - this.py) <= REACH * TILE;
       this.highlight.lineStyle(2, foeInReach ? 0xff5252 : 0x888888, 0.95);
