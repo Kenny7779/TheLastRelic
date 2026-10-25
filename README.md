@@ -98,7 +98,7 @@ npm run typecheck  # comprobación de tipos
 | Elegir slot | `1`–`0` o rueda del ratón |
 | Abrir inventario (20 slots) | `E` |
 
-**Objetivo de la demo:** encuentra la ruina de piedra cerrada, rompe un muro para entrar y rompe la Gema de Fuego. Puedes cambiar el mundo con `?seed=123` en la URL.
+**Objetivo de la demo:** encuentra la ruina de piedra cerrada, rompe un muro para entrar y rompe la Gema de Fuego. Puedes cambiar el mundo con `?seed=123` en la URL. Por defecto usa render Canvas; con `?webgl` se prueba WebGL.
 
 ### Publicación
 

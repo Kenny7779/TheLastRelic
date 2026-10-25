@@ -13,6 +13,17 @@
   </head>
   <body>
     <div id="game"></div>
+    <pre id="err" style="display:none;position:fixed;left:8px;top:8px;right:8px;margin:0;color:#ff8a80;font:12px monospace;white-space:pre-wrap;z-index:9"></pre>
+    <script>
+      // Si algo falla, lo muestra en pantalla en vez de dejarla en negro.
+      function showErr(m) {
+        var p = document.getElementById('err');
+        p.style.display = 'block';
+        p.textContent += 'Error: ' + m + '\n';
+      }
+      window.addEventListener('error', function (e) { showErr(e.message || e); });
+      window.addEventListener('unhandledrejection', function (e) { showErr((e.reason && e.reason.message) || e.reason); });
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

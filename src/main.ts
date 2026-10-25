@@ -2,11 +2,12 @@ import Phaser from 'phaser';
 import { UIScene } from './scenes/UIScene';
 import { WorldScene } from './scenes/WorldScene';
 
-// ?canvas fuerza el renderizador Canvas (respaldo si WebGL falla en algún equipo).
-const forceCanvas = new URLSearchParams(window.location.search).has('canvas');
+// Por defecto usa Canvas 2D (funciona en cualquier equipo, sin depender de la GPU).
+// Añade ?webgl a la URL para probar el renderizador WebGL.
+const useWebGL = new URLSearchParams(window.location.search).has('webgl');
 
 new Phaser.Game({
-  type: forceCanvas ? Phaser.CANVAS : Phaser.AUTO,
+  type: useWebGL ? Phaser.AUTO : Phaser.CANVAS,
   parent: 'game',
   backgroundColor: '#10141c',
   pixelArt: true,
