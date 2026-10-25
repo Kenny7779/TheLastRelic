@@ -2,6 +2,14 @@ import Phaser from 'phaser';
 import { HOTBAR_SLOTS, INV_SLOTS } from '../config';
 import { Inventory } from '../game/Inventory';
 import { ITEMS, type ItemId } from '../game/items';
+import { MINIMAP_KEY } from '../game/Minimap';
+import { createLightTexture } from '../game/tileset';
+import { TILE } from '../config';
+import type { WorldScene } from './WorldScene';
+
+const LIGHT_KEY = 'light';
+const NIGHT_COLOR = 0x060a20;
+const NIGHT_EDGE_ALPHA = 0.86;
 
 const FONT = 'ui-monospace, Menlo, Consolas, monospace';
 const GEM_COLORS = [0xff5a1f, 0x5ec8ff, 0x4caf50, 0x8a8f9a]; // fuego, hielo, bosque, ???
@@ -27,6 +35,14 @@ export class UIScene extends Phaser.Scene {
   private lastToast = '';
   private lastToastAt = 0;
   private slotRects: SlotRect[] = [];
+  private worldScene?: WorldScene;
+  private lightImg!: Phaser.GameObjects.Image;
+  private nightGfx!: Phaser.GameObjects.Graphics;
+  private dynGfx!: Phaser.GameObjects.Graphics;
+  private minimapImg!: Phaser.GameObjects.Image;
+  private timeText!: Phaser.GameObjects.Text;
+  private hpText!: Phaser.GameObjects.Text;
+  private mm = { x: 0, y: 0, scale: 1, size: 128 };
 
   constructor() {
     super('UI');
@@ -34,6 +50,19 @@ export class UIScene extends Phaser.Scene {
 
   create(): void {
     this.inventory = this.registry.get('inventory') as Inventory;
+    this.worldScene = this.scene.get('World') as WorldScene;
+
+    // Oscuridad nocturna: va primero para quedar por debajo del resto de la interfaz.
+    createLightTexture(this, LIGHT_KEY);
+    this.lightImg = this.add.image(0, 0, LIGHT_KEY).setVisible(false);
+    this.nightGfx = this.add.graphics();
+
+    // Minimapa.
+    this.minimapImg = this.add.image(0, 0, MINIMAP_KEY).setOrigin(0, 0);
+    this.dynGfx = this.add.graphics();
+    this.timeText = this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '13px', color: '#ffffff', stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5, 0);
+    this.hpText = this.add.text(0, 0, '', { fontFamily: FONT, fontSize: '11px', color: '#ffffff', stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5, 0.5);
+
     this.gfx = this.add.graphics();
 
     for (let i = 0; i < INV_SLOTS; i++) {
@@ -53,7 +82,7 @@ export class UIScene extends Phaser.Scene {
     this.helpText = this.add.text(
       16,
       62,
-      ['WASD / flechas: moverse', 'Click izq. (mantener): romper', 'Click der.: colocar (madera sobre agua = puente)', '1-0 / rueda: elegir slot', 'E: abrir inventario (20 slots)'].join('\n'),
+      ['WASD / flechas: moverse', 'Click izq. (mantener): romper', 'Click der.: colocar (madera sobre agua = puente)', '1-0 / rueda: elegir slot', 'E: abrir inventario (20 slots)', 'Click izq. sobre un enemigo: atacar', 'N: saltar al atardecer'].join('\n'),
       { fontFamily: FONT, fontSize: '11px', color: '#cfd8e6', stroke: '#000000', strokeThickness: 2, lineSpacing: 3 },
     );
     this.toastText = this.add
@@ -88,7 +117,97 @@ export class UIScene extends Phaser.Scene {
 
   update(): void {
     const p = this.input.activePointer;
-    this.registry.set('uiHover', this.slotAt(p.x, p.y) >= 0);
+    this.registry.set('uiHover', this.slotAt(p.x, p.y) >= 0 || this.overMinimap(p.x, p.y));
+    const w = this.worldScene;
+    if (!w || !w.clock || !w.enemies) return;
+    this.drawNight(w);
+    this.drawHud(w);
+  }
+
+  private overMinimap(px: number, py: number): boolean {
+    const m = this.mm;
+    return px >= m.x && px <= m.x + m.size && py >= m.y && py <= m.y + m.size;
+  }
+
+  /** Oscuridad de la noche con un círculo de luz alrededor del jugador. */
+  private drawNight(w: WorldScene): void {
+    const dark = w.clock.darkness;
+    const g = this.nightGfx;
+    g.clear();
+    if (dark < 0.01) {
+      this.lightImg.setVisible(false);
+      return;
+    }
+    const W = this.scale.width;
+    const H = this.scale.height;
+    const pos = w.playerScreen();
+    const size = 16 * TILE * w.cameras.main.zoom; // diámetro de la viñeta
+    const half = size / 2;
+    const left = pos.x - half;
+    const top = pos.y - half;
+    const right = pos.x + half;
+    const bottom = pos.y + half;
+    this.lightImg.setVisible(true).setPosition(pos.x, pos.y).setDisplaySize(size, size).setAlpha(dark);
+    g.fillStyle(NIGHT_COLOR, NIGHT_EDGE_ALPHA * dark);
+    if (top > 0) g.fillRect(0, 0, W, Math.min(H, top));
+    if (bottom < H) g.fillRect(0, Math.max(0, bottom), W, H - Math.max(0, bottom));
+    const y0 = Math.max(0, top);
+    const y1 = Math.min(H, bottom);
+    if (left > 0) g.fillRect(0, y0, Math.min(W, left), y1 - y0);
+    if (right < W) g.fillRect(Math.max(0, right), y0, W - Math.max(0, right), y1 - y0);
+  }
+
+  /** Marcadores del minimapa, reloj y barra de vida. */
+  private drawHud(w: WorldScene): void {
+    const g = this.dynGfx;
+    g.clear();
+    const m = this.mm;
+    const s = m.scale;
+
+    // Enemigos cercanos.
+    const pt = w.playerTile;
+    g.fillStyle(0xff3b3b, 1);
+    for (const e of w.enemies.list) {
+      if (e.dying > 0) continue;
+      const ex = Math.floor(e.x / TILE);
+      const ey = Math.floor(e.y / TILE);
+      if (Math.hypot(ex - pt.x, ey - pt.y) > 18) continue;
+      g.fillRect(m.x + ex * s - 1, m.y + ey * s - 1, 3, 3);
+    }
+    // Jugador.
+    g.fillStyle(0x000000, 1);
+    g.fillRect(m.x + pt.x * s - 3, m.y + pt.y * s - 3, 6, 6);
+    g.fillStyle(0xffffff, 1);
+    g.fillRect(m.x + pt.x * s - 2, m.y + pt.y * s - 2, 4, 4);
+
+    // Reloj: icono de sol o luna + texto.
+    const night = w.clock.isNight;
+    const cy = m.y + m.size + 16;
+    const cx = m.x + m.size / 2;
+    this.timeText.setPosition(cx + 10, m.y + m.size + 8).setText(`Día ${w.clock.day}  ${w.clock.clockText}`);
+    this.timeText.setColor(night ? '#9fb8ff' : '#fff1b8');
+    const iconX = cx - this.timeText.width / 2 - 6;
+    if (night) {
+      g.fillStyle(0xcfd8ff, 1);
+      g.fillCircle(iconX, cy, 6);
+      g.fillStyle(0x10141c, 1);
+      g.fillCircle(iconX + 3, cy - 2, 5);
+    } else {
+      g.fillStyle(0xffd54a, 1);
+      g.fillCircle(iconX, cy, 6);
+    }
+
+    // Barra de vida.
+    const hp = w.hp;
+    const maxHp = (this.registry.get('maxHp') as number) ?? 20;
+    const by = m.y + m.size + 32;
+    g.fillStyle(0x000000, 0.7);
+    g.fillRect(m.x, by, m.size, 14);
+    g.fillStyle(hp / maxHp > 0.3 ? 0xe53935 : 0xff8a00, 1);
+    g.fillRect(m.x + 2, by + 2, (m.size - 4) * (hp / maxHp), 10);
+    g.lineStyle(2, 0x4a566b, 1);
+    g.strokeRect(m.x, by, m.size, 14);
+    this.hpText.setPosition(cx, by + 7).setText(`♥ ${hp}/${maxHp}`);
   }
 
   // ------------------------------------------------------------------- layout
@@ -179,6 +298,14 @@ export class UIScene extends Phaser.Scene {
       .setText(sel ? ITEMS[sel.id].name : '')
       .setPosition(this.scale.width / 2, topY - 8)
       .setVisible(!!sel && !!selectedRect);
+
+    // Minimapa arriba a la derecha.
+    const mmScale = this.scale.width >= 700 ? 1.25 : 1;
+    const mmSize = 128 * mmScale;
+    this.mm = { x: this.scale.width - 12 - mmSize, y: 12, scale: mmScale, size: mmSize };
+    this.minimapImg.setPosition(this.mm.x, this.mm.y).setScale(mmScale);
+    g.lineStyle(2, 0x4a566b, 1);
+    g.strokeRect(this.mm.x - 1, this.mm.y - 1, mmSize + 2, mmSize + 2);
 
     this.toastText.setPosition(this.scale.width / 2, 16);
     this.toastText.setWordWrapWidth(Math.min(560, this.scale.width - 32));

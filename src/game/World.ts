@@ -25,6 +25,8 @@ export class World {
   readonly h = WORLD_H;
   readonly ground = new Uint8Array(WORLD_W * WORLD_H);
   readonly blocks = new Uint8Array(WORLD_W * WORLD_H);
+  /** Tiles descubiertos por el jugador (para el minimapa). */
+  readonly explored = new Uint8Array(WORLD_W * WORLD_H);
   spawn = { x: WORLD_W >> 1, y: WORLD_H >> 1 };
   gem = { x: 0, y: 0 };
 
@@ -54,6 +56,20 @@ export class World {
     const b = this.blockAt(x, y);
     if (b !== BlockId.NONE) return BLOCKS[b].solid;
     return this.groundAt(x, y) === Ground.WATER;
+  }
+
+  /** ¿Una caja centrada en (x, y) (píxeles) choca con algún tile sólido? */
+  boxCollides(x: number, y: number, halfW: number, halfH: number, tile: number): boolean {
+    const x0 = Math.floor((x - halfW) / tile);
+    const x1 = Math.floor((x + halfW) / tile);
+    const y0 = Math.floor((y - halfH) / tile);
+    const y1 = Math.floor((y + halfH) / tile);
+    for (let ty = y0; ty <= y1; ty++) {
+      for (let tx = x0; tx <= x1; tx++) {
+        if (this.isSolid(tx, ty)) return true;
+      }
+    }
+    return false;
   }
 
   private generate(seed: number): void {

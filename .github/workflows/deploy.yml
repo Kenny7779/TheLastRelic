@@ -67,6 +67,18 @@ jobs:
         run: node scripts/smoke.mjs place
       - name: "Smoke - gema"
         run: node scripts/smoke.mjs gem
+      - name: "Smoke - reloj día/noche"
+        run: node scripts/smoke.mjs clock
+      - name: "Smoke - minimapa"
+        run: node scripts/smoke.mjs minimap
+      - name: "Smoke - enemigos nocturnos"
+        run: GAME_QS="?time=0.95" node scripts/smoke.mjs enemies
+      - name: "Smoke - combate"
+        run: node scripts/smoke.mjs combat
+      - name: "Smoke - amanecer"
+        run: GAME_QS="?time=0.95" node scripts/smoke.mjs dawn
+      - name: "Render - noche"
+        run: GAME_QS="?time=0.95" EXPECT_NIGHT=1 node scripts/smoke.mjs render
       - name: "Render - Canvas (por defecto)"
         run: node scripts/smoke.mjs render
       - name: "Render - WebGL"

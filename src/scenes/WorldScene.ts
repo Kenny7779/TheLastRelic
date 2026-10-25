@@ -11,28 +11,44 @@ import {
   WORLD_W,
 } from '../config';
 import { BLOCKS, BlockId, blockTileIndex } from '../game/blocks';
+import { DayNight } from '../game/DayNight';
+import { ENEMY_KEY, EnemyManager } from '../game/Enemies';
 import { Inventory } from '../game/Inventory';
 import { ITEMS } from '../game/items';
-import { createPlayerTexture, createTileset, TILESET_KEY } from '../game/tileset';
+import { Minimap } from '../game/Minimap';
+import { createEnemyTexture, createPlayerTexture, createTileset, TILESET_KEY } from '../game/tileset';
 import { Ground, World } from '../game/World';
 
 const PLAYER_KEY = 'player';
 const TOTAL_GEMS = 4;
+const MAX_HP = 20;
+const REVEAL_RADIUS = 10;
 
 export class WorldScene extends Phaser.Scene {
-  private world!: World;
-  private inventory!: Inventory;
+  world!: World;
+  inventory!: Inventory;
+  clock!: DayNight;
+  enemies!: EnemyManager;
+  minimap!: Minimap;
+  hp = MAX_HP;
+
   private blockLayer!: Phaser.Tilemaps.TilemapLayer;
   private player!: Phaser.GameObjects.Image;
-  private px = 0;
-  private py = 0;
+  px = 0;
+  py = 0;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private highlight!: Phaser.GameObjects.Graphics;
   private progress!: Phaser.GameObjects.Graphics;
   private miningTarget: { x: number; y: number } | null = null;
   private miningProgress = 0;
   private placeCooldown = 0;
+  private attackCooldown = 0;
   private fullToastCooldown = 0;
+  private invuln = 0;
+  private sinceHit = 99;
+  private regenTimer = 0;
+  private wasNight = false;
+  private lastTile = { x: -1, y: -1 };
   private won = false;
 
   constructor() {
@@ -40,12 +56,24 @@ export class WorldScene extends Phaser.Scene {
   }
 
   create(): void {
-    const seed = Number(new URLSearchParams(window.location.search).get('seed')) || DEFAULT_SEED;
+    const params = new URLSearchParams(window.location.search);
+    const seed = Number(params.get('seed')) || DEFAULT_SEED;
     this.world = new World(seed);
     this.inventory = new Inventory();
+    this.clock = new DayNight();
+    const startTime = params.get('time');
+    if (startTime !== null && startTime !== '' && !Number.isNaN(Number(startTime))) {
+      this.clock.setFraction(Math.max(0, Math.min(0.999, Number(startTime))));
+    }
+    this.hp = MAX_HP;
+    this.invuln = 0;
+    this.sinceHit = 99;
+    this.won = false;
     this.registry.set('inventory', this.inventory);
     this.registry.set('gems', 0);
     this.registry.set('uiHover', false);
+    this.registry.set('hp', this.hp);
+    this.registry.set('maxHp', MAX_HP);
 
     // --- Mapa ---
     createTileset(this);
@@ -62,11 +90,17 @@ export class WorldScene extends Phaser.Scene {
     }
     this.blockLayer.setDepth(5);
 
-    // --- Jugador ---
+    // --- Jugador, enemigos y minimapa ---
     createPlayerTexture(this, PLAYER_KEY);
+    createEnemyTexture(this, ENEMY_KEY);
     this.px = (this.world.spawn.x + 0.5) * TILE;
     this.py = (this.world.spawn.y + 0.5) * TILE;
     this.player = this.add.image(this.px, this.py, PLAYER_KEY).setDepth(10).setOrigin(0.5, 0.75);
+    this.enemies = new EnemyManager(this, this.world);
+    this.minimap = new Minimap(this, this.world);
+    this.minimap.reveal(this.world.spawn.x, this.world.spawn.y, REVEAL_RADIUS);
+    this.lastTile = { x: this.world.spawn.x, y: this.world.spawn.y };
+    this.wasNight = this.clock.isNight;
 
     // --- Cámara ---
     const cam = this.cameras.main;
@@ -82,6 +116,8 @@ export class WorldScene extends Phaser.Scene {
       if (e.key >= '0' && e.key <= '9') {
         const n = e.key === '0' ? 9 : Number(e.key) - 1;
         this.inventory.select(n);
+      } else if (e.key === 'n' || e.key === 'N') {
+        this.clock.skipToDusk();
       }
     });
     this.input.on('wheel', (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
@@ -105,15 +141,99 @@ export class WorldScene extends Phaser.Scene {
     this.cameras.main.setZoom(zoom);
   }
 
+  // ------------------------------------------------------------ API para la UI
+
+  get playerTile(): { x: number; y: number } {
+    return { x: Math.floor(this.px / TILE), y: Math.floor(this.py / TILE) };
+  }
+
+  /** Posición del jugador en píxeles de pantalla. */
+  playerScreen(): { x: number; y: number } {
+    const cam = this.cameras.main;
+    return { x: (this.px - cam.worldView.x) * cam.zoom, y: (this.py - cam.worldView.y) * cam.zoom };
+  }
+
+  // ------------------------------------------------------------------- bucle
+
   update(_time: number, delta: number): void {
     const dt = Math.min(delta, 50) / 1000;
+
+    this.clock.update(dt);
+    const night = this.clock.isNight;
+    if (night !== this.wasNight) {
+      this.wasNight = night;
+      this.game.events.emit(
+        'toast',
+        night ? 'Cae la noche… aparecen criaturas. Refúgiate tras muros o pelea (click en ellas).' : 'Amanece. Las criaturas se desvanecen.',
+      );
+    }
+
     this.movePlayer(dt);
     this.handleMouse(dt);
+    this.enemies.update(dt, { x: this.px, y: this.py }, this.clock, (d, fx, fy) => this.hurtPlayer(d, fx, fy));
+
+    // Exploración del minimapa.
+    const t = this.playerTile;
+    if (t.x !== this.lastTile.x || t.y !== this.lastTile.y) {
+      this.lastTile = t;
+      this.minimap.reveal(t.x, t.y, REVEAL_RADIUS);
+    }
+    this.minimap.update(dt);
+
+    // Temporizadores del jugador.
+    this.invuln = Math.max(0, this.invuln - dt);
+    this.sinceHit += dt;
+    this.player.setAlpha(this.invuln > 0 && Math.floor(this.invuln * 12) % 2 === 0 ? 0.4 : 1);
+    if (this.hp < MAX_HP && this.sinceHit > 6) {
+      this.regenTimer += dt;
+      if (this.regenTimer >= 2) {
+        this.regenTimer = 0;
+        this.setHp(this.hp + 1);
+      }
+    }
     this.placeCooldown = Math.max(0, this.placeCooldown - dt);
+    this.attackCooldown = Math.max(0, this.attackCooldown - dt);
     this.fullToastCooldown = Math.max(0, this.fullToastCooldown - dt);
   }
 
-  // ---------------------------------------------------------------- movimiento
+  // ------------------------------------------------------------------- salud
+
+  private setHp(v: number): void {
+    this.hp = Math.max(0, Math.min(MAX_HP, v));
+    this.registry.set('hp', this.hp);
+  }
+
+  hurtPlayer(damage: number, fromX: number, fromY: number): void {
+    if (this.invuln > 0) return;
+    this.setHp(this.hp - damage);
+    this.invuln = 0.9;
+    this.sinceHit = 0;
+    this.regenTimer = 0;
+    this.cameras.main.shake(140, 0.004);
+
+    // Retroceso.
+    const dx = this.px - fromX;
+    const dy = this.py - fromY;
+    const d = Math.hypot(dx, dy) || 1;
+    const kx = (dx / d) * 14;
+    const ky = (dy / d) * 14;
+    if (!this.collides(this.px + kx, this.py)) this.px += kx;
+    if (!this.collides(this.px, this.py + ky)) this.py += ky;
+
+    if (this.hp <= 0) this.die();
+  }
+
+  private die(): void {
+    this.enemies.clear();
+    this.px = (this.world.spawn.x + 0.5) * TILE;
+    this.py = (this.world.spawn.y + 0.5) * TILE;
+    this.setHp(MAX_HP);
+    this.invuln = 2.5;
+    this.cameras.main.flash(400, 200, 30, 30);
+    this.game.events.emit('toast', 'Has caído. Reapareces en el campamento.');
+  }
+
+  // ------------------------------------------------------------- movimiento
 
   private movePlayer(dt: number): void {
     const k = this.keys;
@@ -131,16 +251,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private collides(x: number, y: number): boolean {
-    const x0 = Math.floor((x - PLAYER_HALF_W) / TILE);
-    const x1 = Math.floor((x + PLAYER_HALF_W) / TILE);
-    const y0 = Math.floor((y - PLAYER_HALF_H) / TILE);
-    const y1 = Math.floor((y + PLAYER_HALF_H) / TILE);
-    for (let ty = y0; ty <= y1; ty++) {
-      for (let tx = x0; tx <= x1; tx++) {
-        if (this.world.isSolid(tx, ty)) return true;
-      }
-    }
-    return false;
+    return this.world.boxCollides(x, y, PLAYER_HALF_W, PLAYER_HALF_H, TILE);
   }
 
   // ------------------------------------------------------------------- ratón
@@ -156,8 +267,25 @@ export class WorldScene extends Phaser.Scene {
     const dist = Math.hypot((tx + 0.5) * TILE - this.px, (ty + 0.5) * TILE - this.py);
     const inReach = inside && dist <= REACH * TILE;
 
-    // Cursor de selección.
     this.highlight.clear();
+    this.progress.clear();
+
+    // Combate: un enemigo bajo el cursor tiene prioridad sobre romper bloques.
+    const foe = overUI ? undefined : this.enemies.at(wp.x, wp.y, 18);
+    if (foe) {
+      const foeInReach = Math.hypot(foe.x - this.px, foe.y - this.py) <= REACH * TILE;
+      this.highlight.lineStyle(2, foeInReach ? 0xff5252 : 0x888888, 0.95);
+      this.highlight.strokeCircle(foe.x, foe.y - 4, 13);
+      this.miningTarget = null;
+      this.miningProgress = 0;
+      if (p.leftButtonDown() && foeInReach && this.attackCooldown <= 0) {
+        this.attackCooldown = 0.35;
+        this.enemies.damage(foe, 1, this.px, this.py);
+      }
+      return;
+    }
+
+    // Cursor de selección.
     if (inside && !overUI) {
       this.highlight.lineStyle(2, inReach ? 0xffffff : 0xff5252, inReach ? 0.9 : 0.6);
       this.highlight.strokeRect(tx * TILE + 1, ty * TILE + 1, TILE - 2, TILE - 2);
@@ -191,7 +319,6 @@ export class WorldScene extends Phaser.Scene {
       this.miningProgress = 0;
     }
 
-    this.progress.clear();
     if (this.miningTarget && this.miningProgress > 0) {
       const bx = this.miningTarget.x * TILE;
       const by = this.miningTarget.y * TILE;
@@ -208,11 +335,12 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  private breakBlock(x: number, y: number): void {
+  breakBlock(x: number, y: number): void {
     const id = this.world.blockAt(x, y);
     const def = BLOCKS[id];
     this.world.setBlock(x, y, BlockId.NONE);
     this.blockLayer.removeTileAt(x, y);
+    this.minimap.paintTile(x, y);
     if (def.drop) this.inventory.add(def.drop, def.dropCount ?? 1);
 
     if (id === BlockId.GEM) {
@@ -240,15 +368,17 @@ export class WorldScene extends Phaser.Scene {
       block = BlockId.BRIDGE;
     }
 
-    // No colocar bloques sólidos encima del jugador.
+    // No colocar bloques sólidos encima del jugador ni de un enemigo.
     if (BLOCKS[block].solid) {
-      const overlapX = this.px + PLAYER_HALF_W > x * TILE && this.px - PLAYER_HALF_W < (x + 1) * TILE;
-      const overlapY = this.py + PLAYER_HALF_H > y * TILE && this.py - PLAYER_HALF_H < (y + 1) * TILE;
-      if (overlapX && overlapY) return;
+      const overlaps = (cx: number, cy: number, hw: number, hh: number) =>
+        cx + hw > x * TILE && cx - hw < (x + 1) * TILE && cy + hh > y * TILE && cy - hh < (y + 1) * TILE;
+      if (overlaps(this.px, this.py, PLAYER_HALF_W, PLAYER_HALF_H)) return;
+      if (this.enemies.list.some((e) => overlaps(e.x, e.y, 8, 8))) return;
     }
 
     this.world.setBlock(x, y, block);
     this.blockLayer.putTileAt(blockTileIndex(block), x, y);
+    this.minimap.paintTile(x, y);
     this.inventory.removeFromSlot(this.inventory.selected, 1);
   }
 }

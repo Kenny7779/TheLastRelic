@@ -141,6 +141,127 @@ if (step === 'gem') {
   check('se consigue la Gema de Fuego', res.gems === 1 && res.hasItem, JSON.stringify(res));
 }
 
+if (step === 'clock') {
+  const r = await page.evaluate(() => {
+    const c = window.__relic.clock;
+    const at = (f) => {
+      c.setFraction(f);
+      return { dark: c.darkness, night: c.isNight };
+    };
+    const noon = at(0.5);
+    const midnight = at(0.0);
+    const evening = at(0.95);
+    c.setFraction(0.3);
+    const day0 = c.day;
+    c.skipToDusk();
+    const dusk = { frac: c.fraction, dark: c.darkness };
+    return { noon, midnight, evening, dusk, day0, clock: c.clockText };
+  });
+  check('mediodía es de día', r.noon.dark === 0 && !r.noon.night, JSON.stringify(r.noon));
+  check('medianoche es de noche', r.midnight.dark === 1 && r.midnight.night, JSON.stringify(r.midnight));
+  check('19:00-23:00 es noche', r.evening.night, JSON.stringify(r.evening));
+  check('el atardecer es una transición', r.dusk.dark > 0 && r.dusk.dark < 0.55, JSON.stringify(r.dusk));
+}
+
+if (step === 'minimap') {
+  const r = await page.evaluate(() => {
+    const s = window.__relic;
+    const ex = s.world.explored.reduce((a, b) => a + b, 0);
+    const far = s.world.explored[0];
+    const gem = s.world.gem;
+    return { ex, far, gemKnown: s.world.explored[gem.y * s.world.w + gem.x], tex: s.textures.exists('minimap') };
+  });
+  check('existe la textura del minimapa', r.tex);
+  check('hay tiles explorados alrededor del jugador', r.ex > 100 && r.ex < 1000, `explorados=${r.ex}`);
+  check('la niebla oculta el resto del mapa', r.far === 0 && r.gemKnown === 0, JSON.stringify(r));
+  // Explorar al caminar descubre más.
+  const before = r.ex;
+  await teleport(info.spawn.x + 6, info.spawn.y);
+  const after = await page.evaluate(() => window.__relic.world.explored.reduce((a, b) => a + b, 0));
+  check('caminar descubre más mapa', after > before, `${before} -> ${after}`);
+}
+
+if (step === 'enemies') {
+  await page.evaluate(() => window.__relic.clock.setFraction(0.95)); // noche
+  await page.waitForFunction(() => window.__relic.enemies.alive() > 0, null, { timeout: 12000 }).catch(() => {});
+  const r = await page.evaluate(() => {
+    const s = window.__relic;
+    const night = s.clock.isNight;
+    const dists = s.enemies.list.map((e) => Math.hypot(e.x - s.px, e.y - s.py) / 32);
+    return { night, count: s.enemies.alive(), minDist: Math.min(...dists) };
+  });
+  check('de noche aparecen enemigos', r.count > 0, JSON.stringify(r));
+  check('aparecen lejos del jugador (>=9 tiles)', r.minDist >= 9, JSON.stringify(r));
+  await page.waitForTimeout(4000);
+  const later = await page.evaluate(() => {
+    const s = window.__relic;
+    const dists = s.enemies.list.map((e) => Math.hypot(e.x - s.px, e.y - s.py) / 32);
+    return { minDist: Math.min(...dists) };
+  });
+  check('los enemigos se acercan al jugador', later.minDist < r.minDist - 0.5, JSON.stringify({ antes: r.minDist, despues: later.minDist }));
+}
+
+if (step === 'combat') {
+  await page.evaluate(() => {
+    window.__relic.clock.setFraction(0.95);
+    window.__relic.enemies.spawningEnabled = false;
+  });
+  // Un enemigo pegado al jugador le hace daño.
+  await page.evaluate(() => {
+    const s = window.__relic;
+    s.enemies.clear();
+    s.enemies.spawnAt(s.px + 10, s.py, 1);
+  });
+  await page.waitForTimeout(1500);
+  const hp = await page.evaluate(() => window.__relic.hp);
+  check('un enemigo cercano hiere al jugador', hp < 20, `hp=${hp}`);
+
+  // El jugador lo mata a clics.
+  await page.evaluate(() => {
+    const s = window.__relic;
+    s.enemies.clear();
+    s.enemies.spawnAt(s.px + 48, s.py, 1);
+    s.enemies.list[0].speed = 0;
+  });
+  await page.waitForTimeout(300);
+  const pos = await page.evaluate(() => {
+    const s = window.__relic;
+    const e = s.enemies.list[0];
+    const cam = s.cameras.main;
+    return { x: (e.x - cam.worldView.x) * cam.zoom, y: (e.y - 4 - cam.worldView.y) * cam.zoom };
+  });
+  await page.mouse.move(pos.x, pos.y);
+  await page.mouse.down();
+  await page.waitForTimeout(1800);
+  await page.mouse.up();
+  const left = await page.evaluate(() => window.__relic.enemies.alive());
+  check('el jugador mata al enemigo con click', left === 0, `vivos=${left}`);
+
+  // Morir devuelve al campamento con la vida llena.
+  await page.evaluate(() => {
+    const s = window.__relic;
+    s.px += 200;
+    s.hurtPlayer(100, s.px - 5, s.py);
+  });
+  const res = await page.evaluate(() => {
+    const s = window.__relic;
+    return { hp: s.hp, atSpawn: Math.floor(s.px / 32) === s.world.spawn.x };
+  });
+  check('al morir reapareces en el campamento con vida llena', res.hp === 20 && res.atSpawn, JSON.stringify(res));
+}
+
+if (step === 'dawn') {
+  await page.evaluate(() => {
+    const s = window.__relic;
+    s.enemies.clear();
+    for (let i = 0; i < 4; i++) s.enemies.spawnAt(s.px + 300 + i * 20, s.py, 1);
+    s.clock.setFraction(0.5); // mediodía
+  });
+  await page.waitForFunction(() => window.__relic.enemies.list.length === 0, null, { timeout: 14000 }).catch(() => {});
+  const n = await page.evaluate(() => window.__relic.enemies.list.length);
+  check('al amanecer los enemigos desaparecen', n === 0, `quedan=${n}`);
+}
+
 const shot = await page.screenshot({ path: `test-results/${step}.png` });
 
 if (step === 'render') {
@@ -172,7 +293,10 @@ if (step === 'render') {
     const mid = ctx.getImageData(cx - 40, cy - 40, 80, 80).data;
     let midLum = 0;
     for (let i = 0; i < mid.length; i += 4) midLum += 0.299 * mid[i] + 0.587 * mid[i + 1] + 0.114 * mid[i + 2];
-    return { mean: lum / n, brightFrac: bright / n, colors: colors.size, centerMean: midLum / (mid.length / 4) };
+    const cor = ctx.getImageData(10, c.height - 90, 80, 80).data;
+    let corLum = 0;
+    for (let i = 0; i < cor.length; i += 4) corLum += 0.299 * cor[i] + 0.587 * cor[i + 1] + 0.114 * cor[i + 2];
+    return { mean: lum / n, brightFrac: bright / n, colors: colors.size, centerMean: midLum / (mid.length / 4), cornerMean: corLum / (cor.length / 4) };
   }, shot.toString('base64'));
   const rend = await page.evaluate(() => ({
     type: window.__relic.game.config.renderType,
@@ -182,6 +306,9 @@ if (step === 'render') {
   }));
   console.log('::notice::render stats ' + JSON.stringify({ ...stats, ...rend }));
   check('el mapa se dibuja (centro no negro)', stats.centerMean > 30 && stats.colors > 25, JSON.stringify(stats));
+  if (process.env.EXPECT_NIGHT) {
+    check('de noche el borde está oscuro y hay luz alrededor del jugador', stats.cornerMean < stats.centerMean * 0.6, JSON.stringify(stats));
+  }
 }
 
 check('sin errores en consola', errors.length === 0, errors.slice(0, 3).join(' | '));

@@ -67,7 +67,8 @@ Las zonas son una idea inicial y pueden cambiar durante el desarrollo:
 - [x] Definir la visión inicial del juego
 - [x] Elegir motor y tecnología (Phaser + TypeScript + Vite)
 - [x] Demo: mundo de tiles, movimiento, cámara, romper/colocar bloques, inventario de 20 slots y la primera gema (Fuego)
-- [ ] Hambre y salud
+- [x] Minimapa con niebla, ciclo de día y noche y enemigos nocturnos
+- [ ] Hambre
 - [ ] Crafteo y herramientas
 - [ ] Guardián de la gema de Fuego
 - [ ] Biomas e identidad de las gemas de Hielo, Bosque y la cuarta
@@ -97,6 +98,12 @@ npm run typecheck  # comprobación de tipos
 | Colocar bloque | Click derecho (la madera sobre el agua crea un puente) |
 | Elegir slot | `1`–`0` o rueda del ratón |
 | Abrir inventario (20 slots) | `E` |
+| Atacar a un enemigo | Click izquierdo sobre él |
+| Saltar al atardecer (para probar la noche) | `N` |
+
+**Día y noche:** un día dura unos 3 min 20 s. De noche el mapa se oscurece (solo ves a tu alrededor) y aparecen criaturas que te persiguen; no rompen muros, así que puedes refugiarte construyendo. Al amanecer se desvanecen. Cada día aparecen más. Con `?time=0.95` en la URL empiezas de noche.
+
+**Minimapa:** arriba a la derecha; solo muestra lo que has explorado (la niebla oculta el resto, incluida la ruina de la gema). Debajo ves la hora y tu vida.
 
 **Objetivo de la demo:** encuentra la ruina de piedra cerrada, rompe un muro para entrar y rompe la Gema de Fuego. Puedes cambiar el mundo con `?seed=123` en la URL. Por defecto usa render Canvas; con `?webgl` se prueba WebGL.
 

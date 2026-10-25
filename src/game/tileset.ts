@@ -132,3 +132,46 @@ export function createPlayerTexture(scene: Phaser.Scene, key: string): void {
   ctx.fillRect(14, 9, 2, 2);
   tex.refresh();
 }
+
+/** Textura del enemigo (24x24): criatura de sombra con ojos rojos. */
+export function createEnemyTexture(scene: Phaser.Scene, key: string): void {
+  if (scene.textures.exists(key)) return;
+  const tex = scene.textures.createCanvas(key, 24, 24)!;
+  const ctx = tex.getContext();
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(12, 20, 9, 3.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#3a2250';
+  ctx.beginPath();
+  ctx.moveTo(3, 20);
+  ctx.lineTo(3, 11);
+  ctx.quadraticCurveTo(12, -3, 21, 11);
+  ctx.lineTo(21, 20);
+  ctx.lineTo(17, 17);
+  ctx.lineTo(12, 20);
+  ctx.lineTo(7, 17);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#5b3a7a';
+  ctx.fillRect(7, 6, 4, 2);
+  ctx.fillStyle = '#ff2a2a'; // ojos
+  ctx.fillRect(7, 11, 3, 3);
+  ctx.fillRect(14, 11, 3, 3);
+  tex.refresh();
+}
+
+/** Textura de la "viñeta" nocturna: transparente al centro, oscura en los bordes. */
+export function createLightTexture(scene: Phaser.Scene, key: string, size = 512): void {
+  if (scene.textures.exists(key)) return;
+  const tex = scene.textures.createCanvas(key, size, size)!;
+  const ctx = tex.getContext();
+  const half = size / 2;
+  const g = ctx.createRadialGradient(half, half, half * 0.3, half, half, half);
+  g.addColorStop(0, 'rgba(6,10,32,0)');
+  g.addColorStop(0.55, 'rgba(6,10,32,0.45)');
+  g.addColorStop(1, 'rgba(6,10,32,0.86)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  tex.refresh();
+}
